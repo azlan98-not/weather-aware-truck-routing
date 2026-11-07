@@ -1,0 +1,19 @@
+# Environment & secrets
+.env
+*.env
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+db.sqlite3
+staticfiles/
+
+# Node
+node_modules/
+dist/
+
+# Misc
+.DS_Store
+*.log

@@ -1,0 +1,25 @@
+# Render blueprint for the Django backend.
+# The frontend is a static Vite build (see frontend/vercel.json); point its
+# VITE_API_BASE_URL at this service's URL and add that origin to
+# CORS_ALLOWED_ORIGINS below.
+services:
+  - type: web
+    name: weather-aware-truck-routing-api
+    env: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT
+    healthCheckPath: /api/v1/health/
+    envVars:
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_ALLOWED_HOSTS
+        value: ".onrender.com"
+      - key: CORS_ALLOWED_ORIGINS
+        value: "https://your-frontend.vercel.app"
+      - key: PYTHON_VERSION
+        value: "3.12.3"
+      # Attach a Render Postgres instance to set DATABASE_URL; without it
+      # the app uses SQLite (fine for a demo, ephemeral on Render).

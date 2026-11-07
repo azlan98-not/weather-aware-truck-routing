@@ -1,0 +1,71 @@
+"""Weather lookup service: weather at each checkpoint's estimated arrival.
+
+The forecast hour used is the ETA rounded to the NEAREST hour. If that hour
+is outside the provider's forecast horizon, or any measurement is missing,
+the checkpoint is marked unavailable — callers must treat it as UNKNOWN
+risk, never as safe.
+"""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+
+from apps.weather.providers.open_meteo import HourlyForecast, fetch_hourly_forecasts
+
+logger = logging.getLogger("apps.weather.services")
+
+
+@dataclass(frozen=True)
+class CheckpointWeather:
+    wind_mph: float | None
+    rain_in_per_hr: float | None
+    snow_in_per_hr: float | None
+    available: bool
+
+
+UNAVAILABLE = CheckpointWeather(None, None, None, False)
+
+
+def round_to_nearest_hour(dt: datetime) -> datetime:
+    base = dt.replace(minute=0, second=0, microsecond=0)
+    if dt - base >= timedelta(minutes=30):
+        base += timedelta(hours=1)
+    return base
+
+
+def weather_at_eta(
+    forecasts_by_location: list[dict[datetime, HourlyForecast]],
+    etas: list[datetime],
+) -> list[CheckpointWeather]:
+    """Pair each location's forecast map with its ETA (same list order)."""
+    results: list[CheckpointWeather] = []
+    for forecasts, eta in zip(forecasts_by_location, etas):
+        hour = round_to_nearest_hour(eta)
+        forecast = forecasts.get(hour)
+        if forecast is None:
+            results.append(UNAVAILABLE)
+            continue
+        if forecast.wind_mph is None or forecast.rain_in_per_hr is None \
+                or forecast.snow_in_per_hr is None:
+            results.append(UNAVAILABLE)
+            continue
+        results.append(
+            CheckpointWeather(
+                wind_mph=forecast.wind_mph,
+                rain_in_per_hr=forecast.rain_in_per_hr,
+                snow_in_per_hr=forecast.snow_in_per_hr,
+                available=True,
+            )
+        )
+    return results
+
+
+def fetch_weather_for_points(
+    points: list[tuple[float, float]], etas: list[datetime]
+) -> list[CheckpointWeather]:
+    """One batched provider call for all points, then per-point ETA lookup."""
+    if not points:
+        return []
+    forecasts = fetch_hourly_forecasts(points)
+    return weather_at_eta(forecasts, etas)

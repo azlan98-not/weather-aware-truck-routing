@@ -88,7 +88,11 @@ def fetch_hourly_forecasts(
         "timezone": "UTC",
         "forecast_days": max(1, min(16, forecast_days)),
     }
-    data = get_json(url, params=params)
+    # Bounded budget: a rate-limiting provider can take ~10s to answer, so
+    # this call must not retry its way past the server worker timeout.
+    # Worst case here is ~8s + 0.5s backoff + 8s; on failure the weather
+    # service degrades the checkpoints to UNKNOWN instead of failing.
+    data = get_json(url, params=params, timeout=8, retries=1)
     locations = data if isinstance(data, list) else [data]
     if len(locations) != len(coordinates):
         logger.warning(

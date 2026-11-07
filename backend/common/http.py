@@ -1,11 +1,13 @@
 """Shared HTTP helper for external providers.
 
 Every provider call goes through here so timeouts and retry behaviour are
-consistent: 10-second timeout (configurable), retries with exponential
-backoff on transient failures — connection errors, timeouts, HTTP 5xx and
-HTTP 429 (rate limited). For 429 responses the provider's ``Retry-After``
-header is honoured when present (capped). Other HTTP 4xx responses are
-raised immediately — retrying them cannot help.
+consistent and BOUNDED: the whole analyze request must finish well inside
+the server worker timeout, so the default is one retry with short backoff
+on transient failures — connection errors, timeouts, HTTP 5xx and HTTP 429
+(rate limited). For 429 responses the provider's ``Retry-After`` header is
+honoured when present (capped at 3s). Other HTTP 4xx responses are raised
+immediately — retrying them cannot help. Providers pass explicit
+``timeout`` / ``retries`` budgets suited to their role in the request.
 """
 from __future__ import annotations
 
@@ -18,8 +20,8 @@ from django.conf import settings
 
 logger = logging.getLogger("apps.providers.http")
 
-MAX_RETRY_AFTER_SECONDS = 10.0
-BASE_BACKOFF_SECONDS = 1.0
+MAX_RETRY_AFTER_SECONDS = 3.0
+BASE_BACKOFF_SECONDS = 0.5
 
 
 class ProviderError(Exception):
@@ -27,7 +29,7 @@ class ProviderError(Exception):
 
 
 def _retry_delay(response: requests.Response | None, attempt: int) -> float:
-    """Backoff for the next attempt: 1s, 2s, 4s — or Retry-After if given."""
+    """Backoff for the next attempt: 0.5s, 1s, 2s — or Retry-After if given."""
     if response is not None:
         raw = response.headers.get("Retry-After")
         if raw:
@@ -44,9 +46,9 @@ def get_json(
     params: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
     timeout: float | None = None,
-    retries: int = 3,
+    retries: int = 1,
 ) -> Any:
-    """GET `url` and return parsed JSON, retrying transient failures."""
+    """GET `url` and return parsed JSON, retrying transient failures once."""
     timeout = timeout if timeout is not None else settings.PROVIDER_TIMEOUT_SECONDS
     last_exc: Exception | None = None
     for attempt in range(retries + 1):

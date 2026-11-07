@@ -40,6 +40,8 @@ def geocode(query: str) -> GeocodedPlace:
         url,
         params={"q": query, "format": "json", "limit": 1},
         headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+        timeout=6,
+        retries=1,
     )
     if not results:
         raise GeocodingError(f"Location not found: {query!r}")

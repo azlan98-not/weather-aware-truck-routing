@@ -117,3 +117,18 @@ Budget: 16 working hours / 4 calendar days (assessment cap). Build executed
     (51 backend tests, all passing). Local live re-check: Chicago ->
     St. Louis returned HTTP 200, 3 routes, risk miles reconcile, weather
     available for every checkpoint.
+
+## Post-deployment fix 2 — 2026-11-07 (worker timeout during 429 retries)
+
+- Symptom: with the first fix live, analyze ran past Gunicorn's default
+  30s worker timeout: Open-Meteo took ~10s to return each 429 from the
+  hosted egress IP, and the retry backoff was still sleeping when the
+  worker was killed (WORKER TIMEOUT in Render logs) — the graceful
+  UNKNOWN degradation never got to respond.
+- Fixes: provider budgets are now explicit and bounded — Open-Meteo
+  timeout 8s / 1 retry, OSRM 8s / 1, Nominatim 6s / 1; shared client
+  default is 1 retry with 0.5s/1s/2s backoff and Retry-After capped at
+  3s. Worst-case weather budget is ~17s, inside the worker limit.
+  Gunicorn start command gains `--timeout 120` as a safety margin
+  (render.yaml + the live service's start command).
+- 51 backend tests still passing.

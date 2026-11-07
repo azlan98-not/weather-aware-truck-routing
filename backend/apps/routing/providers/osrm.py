@@ -81,6 +81,8 @@ def _request_routes(
             "overview": "full",
             "steps": "false",
         },
+        timeout=8,
+        retries=1,
     )
     if data.get("code") != "Ok":
         raise ProviderError(

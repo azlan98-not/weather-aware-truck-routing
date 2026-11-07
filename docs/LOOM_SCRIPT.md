@@ -8,6 +8,22 @@ backend on `:8000` and the frontend on `:5173`, browser zoom 110%.
 Demo trip used throughout: **Chicago → St Louis**, departure **tomorrow
 08:00**, load **35,000 lb**, checkpoints every **25 miles**.
 
+## ⚠️ Free-plan split (Loom Starter caps recordings at 5:00)
+
+Record this as **two Looms**, each safely under 5 minutes:
+
+- **Part 1** — sections 1–6 (Intro → Inspect checkpoints), ~4:45.
+  End Part 1 after section 6 with: "…and in part two, the recommendation
+  and the heatmap." Post the Part 2 link in Part 1's description.
+- **Part 1 link goes in the questionnaire** (with Part 2 linked from it),
+  unless the questionnaire offers a second video field — then use both.
+- **Part 2** — sections 7–9 (Recommendation → close), ~3:15.
+  Open Part 2 with: "Part two: how the recommendation works."
+
+Timings below are the combined ~8 minutes; the split points keep each
+part under the cap with margin. Do not try to squeeze it into one take —
+the free recorder hard-stops at 5:00, mid-sentence if you're unlucky.
+
 ---
 
 ## 1 — Intro (0:00–0:40)

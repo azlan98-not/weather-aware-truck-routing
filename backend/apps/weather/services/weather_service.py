@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from apps.weather.providers.open_meteo import HourlyForecast, fetch_hourly_forecasts
+from common.http import ProviderError
 
 logger = logging.getLogger("apps.weather.services")
 
@@ -61,11 +62,40 @@ def weather_at_eta(
     return results
 
 
+def _forecast_days_needed(etas: list[datetime]) -> int:
+    """Days of forecast (counted from today, UTC) covering the latest ETA.
+
+    Keeps provider requests small: a trip departing tomorrow needs ~3 days
+    of hourly data, not the provider's full 16-day horizon.
+    """
+    if not etas:
+        return 1
+    today = datetime.now(timezone.utc).date()
+    latest = max(etas).date()
+    return max(1, min(16, (latest - today).days + 2))
+
+
 def fetch_weather_for_points(
     points: list[tuple[float, float]], etas: list[datetime]
 ) -> list[CheckpointWeather]:
-    """One batched provider call for all points, then per-point ETA lookup."""
+    """One batched provider call for all points, then per-point ETA lookup.
+
+    If the provider fails (for example it rate-limits the request), every
+    point degrades to UNAVAILABLE — the analysis still completes and those
+    miles are reported as UNKNOWN risk, never as safe, instead of the whole
+    request failing.
+    """
     if not points:
         return []
-    forecasts = fetch_hourly_forecasts(points)
+    try:
+        forecasts = fetch_hourly_forecasts(
+            points, forecast_days=_forecast_days_needed(etas)
+        )
+    except ProviderError as exc:
+        logger.warning(
+            "weather provider unavailable; %d checkpoint(s) marked unknown: %s",
+            len(points),
+            exc,
+        )
+        return [UNAVAILABLE] * len(points)
     return weather_at_eta(forecasts, etas)

@@ -1,9 +1,11 @@
 """Shared HTTP helper for external providers.
 
 Every provider call goes through here so timeouts and retry behaviour are
-consistent: 10-second timeout, exactly one retry on a transient failure
-(connection error, timeout, or HTTP 5xx). HTTP 4xx responses are raised
-immediately — retrying them cannot help.
+consistent: 10-second timeout (configurable), retries with exponential
+backoff on transient failures — connection errors, timeouts, HTTP 5xx and
+HTTP 429 (rate limited). For 429 responses the provider's ``Retry-After``
+header is honoured when present (capped). Other HTTP 4xx responses are
+raised immediately — retrying them cannot help.
 """
 from __future__ import annotations
 
@@ -16,9 +18,24 @@ from django.conf import settings
 
 logger = logging.getLogger("apps.providers.http")
 
+MAX_RETRY_AFTER_SECONDS = 10.0
+BASE_BACKOFF_SECONDS = 1.0
+
 
 class ProviderError(Exception):
     """An external provider could not deliver usable data."""
+
+
+def _retry_delay(response: requests.Response | None, attempt: int) -> float:
+    """Backoff for the next attempt: 1s, 2s, 4s — or Retry-After if given."""
+    if response is not None:
+        raw = response.headers.get("Retry-After")
+        if raw:
+            try:
+                return min(float(raw), MAX_RETRY_AFTER_SECONDS)
+            except ValueError:
+                pass
+    return BASE_BACKOFF_SECONDS * (2 ** attempt)
 
 
 def get_json(
@@ -27,18 +44,21 @@ def get_json(
     params: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
     timeout: float | None = None,
-    retries: int = 1,
+    retries: int = 3,
 ) -> Any:
-    """GET `url` and return parsed JSON, with one retry on transient failure."""
+    """GET `url` and return parsed JSON, retrying transient failures."""
     timeout = timeout if timeout is not None else settings.PROVIDER_TIMEOUT_SECONDS
     last_exc: Exception | None = None
     for attempt in range(retries + 1):
+        response: requests.Response | None = None
         try:
             response = requests.get(
                 url, params=params, headers=headers, timeout=timeout
             )
-            if response.status_code >= 500:
-                raise ProviderError(f"{url} returned HTTP {response.status_code}")
+            if response.status_code == 429 or response.status_code >= 500:
+                raise ProviderError(
+                    f"{url} returned HTTP {response.status_code}"
+                )
             response.raise_for_status()
             return response.json()
         except (requests.RequestException, ProviderError) as exc:
@@ -50,8 +70,9 @@ def get_json(
                 exc,
             )
             if isinstance(exc, requests.HTTPError) and exc.response is not None \
-                    and 400 <= exc.response.status_code < 500:
-                break  # client error: do not retry
+                    and 400 <= exc.response.status_code < 500 \
+                    and exc.response.status_code != 429:
+                break  # client error other than rate limiting: do not retry
             if attempt < retries:
-                time.sleep(0.5)
+                time.sleep(_retry_delay(response, attempt))
     raise ProviderError(f"Provider request failed for {url}: {last_exc}")

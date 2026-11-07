@@ -94,3 +94,26 @@ Budget: 16 working hours / 4 calendar days (assessment cap). Build executed
 - Snowfall: Open-Meteo returns snowfall in cm; converted to inches (÷ 2.54).
   Rain requested with `precipitation_unit=inch`; wind with
   `wind_speed_unit=mph`.
+
+## Post-deployment fix — 2026-11-07 (Open-Meteo 429 from hosted backend)
+
+- Symptom: the Render-hosted backend returned HTTP 500 on
+  POST /api/v1/routes/analyze/ while the same call succeeded locally.
+  Render logs showed `common.http.ProviderError` — Open-Meteo answered
+  HTTP 429 (Too Many Requests) from the host's shared egress IP — and the
+  error escaped the weather layer.
+- Fixes:
+  - `common/http.py`: HTTP 429 is now retryable like 5xx, with exponential
+    backoff (1s/2s/4s) honouring `Retry-After`; default retries 3.
+  - `analysis.py`: all routes' checkpoints are fetched in ONE batched
+    Open-Meteo request per analysis (was one request per route, fired in
+    parallel), cutting provider calls per analysis from 3 to 1.
+  - `weather_service.py` / `open_meteo.py`: forecast window is sized to the
+    trip (days from today to the latest checkpoint ETA + 1, clamped 1..16)
+    instead of always requesting 16 days; if the provider still fails, all
+    checkpoints degrade to UNKNOWN risk (reported as unknown miles, never
+    as safe) instead of failing the whole request.
+  - New regression tests in `apps/weather/tests/test_resilience.py`
+    (51 backend tests, all passing). Local live re-check: Chicago ->
+    St. Louis returned HTTP 200, 3 routes, risk miles reconcile, weather
+    available for every checkpoint.

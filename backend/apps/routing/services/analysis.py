@@ -1,15 +1,15 @@
 """Trip analysis orchestration.
 
 Pipeline: geocode origin/destination -> fetch up to 3 genuine routes ->
-per route (concurrently): place checkpoints along the geometry, batch-fetch
-weather at each checkpoint's ETA, classify risk, summarize risk miles ->
-recommendation. Views stay thin; all business logic lives here and in the
-risk / recommendation modules.
+place checkpoints along each route's geometry -> ONE batched weather call
+for every checkpoint of every route (a single provider request keeps us
+well inside the weather provider's rate limits) -> per route: classify
+risk, summarize risk miles -> recommendation. Views stay thin; all
+business logic lives here and in the risk / recommendation modules.
 """
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -106,26 +106,17 @@ def summarize_route_risk(
     return summary
 
 
-def _analyze_route(
+def _build_route(
     index: int,
     provider_route: osrm.ProviderRoute,
     departure: datetime,
     load_weight_lb: float,
-    interval_miles: int,
+    locations: list,
+    weather: list,
 ) -> dict[str, Any]:
-    """Build the full API representation of one route."""
+    """Build the full API representation of one route from its weather."""
     total_miles = provider_route.distance_miles
     duration_minutes = provider_route.duration_seconds / 60.0
-    locations = build_checkpoint_locations(
-        provider_route.geometry,
-        total_miles,
-        provider_route.duration_seconds,
-        departure,
-        interval_miles,
-    )
-    points = [(loc.latitude, loc.longitude) for loc in locations]
-    etas = [loc.eta for loc in locations]
-    weather = fetch_weather_for_points(points, etas)
 
     checkpoints: list[dict[str, Any]] = []
     has_no_travel = False
@@ -223,15 +214,45 @@ def analyze_trip(
             "additional genuine alternatives were generated via detour waypoints."
         )
 
-    # Routes are independent: analyze them concurrently (each makes one
-    # batched weather call).
-    with ThreadPoolExecutor(max_workers=min(3, len(provider_routes))) as pool:
-        routes = list(
-            pool.map(
-                lambda args: _analyze_route(
-                    args[0], args[1], departure, load_weight_lb, interval_miles
-                ),
-                list(enumerate(provider_routes)),
+    # Checkpoints for every route first, then ONE batched weather call for
+    # all of them: a single provider request per analysis instead of one
+    # per route, which keeps the weather provider well within its rate
+    # limits and returns consistent data across routes.
+    locations_per_route = [
+        build_checkpoint_locations(
+            route.geometry,
+            route.distance_miles,
+            route.duration_seconds,
+            departure,
+            interval_miles,
+        )
+        for route in provider_routes
+    ]
+    all_points = [
+        (loc.latitude, loc.longitude)
+        for locations in locations_per_route
+        for loc in locations
+    ]
+    all_etas = [
+        loc.eta for locations in locations_per_route for loc in locations
+    ]
+    all_weather = fetch_weather_for_points(all_points, all_etas)
+
+    routes: list[dict[str, Any]] = []
+    offset = 0
+    for index, (provider_route, locations) in enumerate(
+        zip(provider_routes, locations_per_route)
+    ):
+        route_weather = all_weather[offset:offset + len(locations)]
+        offset += len(locations)
+        routes.append(
+            _build_route(
+                index,
+                provider_route,
+                departure,
+                load_weight_lb,
+                locations,
+                route_weather,
             )
         )
 

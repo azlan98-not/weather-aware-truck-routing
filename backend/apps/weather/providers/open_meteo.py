@@ -67,11 +67,14 @@ def _location_forecasts(location: dict) -> dict[datetime, HourlyForecast]:
 
 def fetch_hourly_forecasts(
     coordinates: list[tuple[float, float]],
+    forecast_days: int = 16,
 ) -> list[dict[datetime, HourlyForecast]]:
     """Batched hourly forecasts for many coordinates in a single API call.
 
     Returns one {hour: HourlyForecast} dict per input coordinate, in order.
-    Raises ProviderError on provider failure.
+    Raises ProviderError on provider failure. ``forecast_days`` is clamped
+    to Open-Meteo's 1..16 range; callers pass only the days actually needed
+    so each request stays as small as possible.
     """
     if not coordinates:
         return []
@@ -83,7 +86,7 @@ def fetch_hourly_forecasts(
         "wind_speed_unit": "mph",
         "precipitation_unit": "inch",
         "timezone": "UTC",
-        "forecast_days": 16,
+        "forecast_days": max(1, min(16, forecast_days)),
     }
     data = get_json(url, params=params)
     locations = data if isinstance(data, list) else [data]

@@ -91,6 +91,9 @@ OSRM_BASE_URL = os.environ.get(
 OPEN_METEO_BASE_URL = os.environ.get(
     "OPEN_METEO_BASE_URL", "https://api.open-meteo.com"
 ).rstrip("/")
+MET_NORWAY_BASE_URL = os.environ.get(
+    "MET_NORWAY_BASE_URL", "https://api.met.no"
+).rstrip("/")
 
 PROVIDER_TIMEOUT_SECONDS = 10
 

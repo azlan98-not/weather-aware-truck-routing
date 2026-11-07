@@ -55,8 +55,8 @@ drive through. This app:
 | Database | SQLite (local default); PostgreSQL via `DATABASE_URL` |
 | Geocoding | OpenStreetMap Nominatim (keyless) |
 | Routing | OSRM demo server (keyless), `alternatives=3` + detour fallback |
-| Weather | Open-Meteo forecast API (keyless) |
-| Tests | Django test runner (46 tests), Vitest + Testing Library (10 tests) |
+| Weather | Open-Meteo forecast API (keyless); MET Norway Locationforecast as automatic backup (keyless) |
+| Tests | Django test runner (56 tests), Vitest + Testing Library (10 tests) |
 | Hosting prep | Render (backend blueprint), Vercel (frontend static) |
 
 ## 4. Features
@@ -241,7 +241,8 @@ mocked provider failure → graceful 502, and full response structure.
 |---|---|---|
 | Nominatim (OSM) | Geocoding | Free usage policy: descriptive User-Agent required, modest rate limits; results depend on OSM place data. |
 | OSRM demo server | Routing + alternatives | Public demo is best-effort with no SLA and **often returns fewer than 3 alternatives** (verified live: Chicago→St Louis returned 2). Mitigated by the detour-waypoint fallback (§14). Truck-specific restrictions (height/weight) are not modeled by the demo profile. |
-| Open-Meteo | Hourly weather forecast | 16-day horizon; hourly resolution. Checkpoints beyond the horizon are reported as unknown risk, never invented. Snowfall is returned in cm and converted to inches. |
+| Open-Meteo | Hourly weather forecast | 16-day horizon; hourly resolution. Checkpoints beyond the horizon are reported as unknown risk, never invented. Snowfall is returned in cm and converted to inches. Rate-limits by source IP — on the hosted backend its shared egress IP was saturated (HTTP 429), which is why the backup below exists. |
+| MET Norway (backup) | Hourly weather forecast when Open-Meteo fails | Engages automatically only on a primary-provider failure (`apps/weather/providers/met_norway.py`). Wind is m/s converted to mph. It reports total precipitation without a rain/snow split, so the period's symbol code classifies it (snow/sleet symbols = snow at the standard 10:1 water-to-depth ratio, otherwise rain) — an approximation used only on the fallback path. |
 
 All provider calls use a 10 s timeout with one retry on transient failure,
 and provider failures surface as clean 502 responses.

@@ -4,6 +4,14 @@ The forecast hour used is the ETA rounded to the NEAREST hour. If that hour
 is outside the provider's forecast horizon, or any measurement is missing,
 the checkpoint is marked unavailable — callers must treat it as UNKNOWN
 risk, never as safe.
+
+Provider order: Open-Meteo (primary, one batched call) -> MET Norway
+(backup, one call per point). The backup exists because Open-Meteo
+rate-limits by source IP and the hosted backend shares its egress IP with
+many other tenants of the hosting platform; MET Norway identifies clients
+by User-Agent instead. If both providers fail, every point degrades to
+UNAVAILABLE — the analysis still completes and those miles are reported
+as UNKNOWN risk instead of the whole request failing.
 """
 from __future__ import annotations
 
@@ -11,7 +19,8 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from apps.weather.providers.open_meteo import HourlyForecast, fetch_hourly_forecasts
+from apps.weather.providers import met_norway, open_meteo
+from apps.weather.providers.open_meteo import HourlyForecast
 from common.http import ProviderError
 
 logger = logging.getLogger("apps.weather.services")
@@ -78,24 +87,34 @@ def _forecast_days_needed(etas: list[datetime]) -> int:
 def fetch_weather_for_points(
     points: list[tuple[float, float]], etas: list[datetime]
 ) -> list[CheckpointWeather]:
-    """One batched provider call for all points, then per-point ETA lookup.
+    """Forecast for all points (primary provider, backup on failure).
 
-    If the provider fails (for example it rate-limits the request), every
-    point degrades to UNAVAILABLE — the analysis still completes and those
-    miles are reported as UNKNOWN risk, never as safe, instead of the whole
-    request failing.
+    If BOTH providers fail (for example both rate-limit the request),
+    every point degrades to UNAVAILABLE — the analysis still completes
+    and those miles are reported as UNKNOWN risk, never as safe, instead
+    of the whole request failing.
     """
     if not points:
         return []
     try:
-        forecasts = fetch_hourly_forecasts(
+        forecasts = open_meteo.fetch_hourly_forecasts(
             points, forecast_days=_forecast_days_needed(etas)
         )
     except ProviderError as exc:
         logger.warning(
-            "weather provider unavailable; %d checkpoint(s) marked unknown: %s",
-            len(points),
-            exc,
+            "primary weather provider unavailable (%s); trying backup", exc
         )
-        return [UNAVAILABLE] * len(points)
+        try:
+            forecasts = met_norway.fetch_hourly_forecasts(points)
+        except ProviderError as backup_exc:
+            logger.warning(
+                "backup weather provider unavailable; "
+                "%d checkpoint(s) marked unknown: %s",
+                len(points),
+                backup_exc,
+            )
+            return [UNAVAILABLE] * len(points)
+        logger.info(
+            "backup weather provider served %d checkpoint(s)", len(points)
+        )
     return weather_at_eta(forecasts, etas)

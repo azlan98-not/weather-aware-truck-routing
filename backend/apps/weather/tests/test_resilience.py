@@ -60,10 +60,16 @@ class RateLimitRetryTests(SimpleTestCase):
 
 class WeatherDegradationTests(SimpleTestCase):
     @mock.patch(
-        "apps.weather.services.weather_service.fetch_hourly_forecasts",
+        "apps.weather.services.weather_service.met_norway.fetch_hourly_forecasts",
+        side_effect=ProviderError("backup down"),
+    )
+    @mock.patch(
+        "apps.weather.services.weather_service.open_meteo.fetch_hourly_forecasts",
         side_effect=ProviderError("429 Too Many Requests"),
     )
-    def test_provider_failure_marks_all_points_unknown(self, _mock_fetch):
+    def test_provider_failure_marks_all_points_unknown(
+        self, _mock_primary, _mock_backup
+    ):
         points = [(41.8, -87.6), (38.6, -90.2)]
         etas = [datetime(2026, 11, 8, 9, 0, tzinfo=UTC)] * 2
         results = weather_service.fetch_weather_for_points(points, etas)

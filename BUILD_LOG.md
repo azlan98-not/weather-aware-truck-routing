@@ -132,3 +132,27 @@ Budget: 16 working hours / 4 calendar days (assessment cap). Build executed
   Gunicorn start command gains `--timeout 120` as a safety margin
   (render.yaml + the live service's start command).
 - 51 backend tests still passing.
+
+## Post-deployment fix 3 — 2026-11-07 (backup weather provider)
+
+- Symptom: with fixes 1–2 live, the hosted analyze endpoint returned 200
+  with 3 routes, but EVERY checkpoint's weather was UNKNOWN — Open-Meteo
+  kept answering HTTP 429 from Render's shared egress IP, so the graceful
+  degradation was doing its job while the hosted demo showed no live
+  weather or risk at all.
+- Fix: a backup weather provider, MET Norway Locationforecast
+  (`apps/weather/providers/met_norway.py`, keyless, identifies by
+  User-Agent instead of per-IP quotas). `fetch_weather_for_points` now
+  tries Open-Meteo first and falls back to MET Norway on ProviderError;
+  only if both fail do checkpoints degrade to UNKNOWN (unchanged
+  semantics). One call per point (max 8 parallel, 6s timeout, no
+  retries), so the worst case stays inside the worker budget.
+- Normalization: wind m/s -> mph; total precipitation mm/hr split into
+  rain vs snow by the period's symbol_code (snow/sleet = snow at the
+  10:1 water-to-depth ratio, otherwise rain) — documented approximation,
+  fallback path only.
+- Tests: 56 backend tests passing (5 new in
+  `apps/weather/tests/test_met_norway.py`; the both-providers-down
+  degradation test in `test_resilience.py` updated). Local live check
+  with Open-Meteo forced unreachable: all sampled checkpoints returned
+  real MET Norway weather (available=True).

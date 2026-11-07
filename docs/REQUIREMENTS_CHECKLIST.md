@@ -13,7 +13,7 @@ verified manually/smoke test only.
 | SQLite local / PostgreSQL option | `backend/config/settings.py` (`DATABASE_URL` via dj-database-url, SQLite default) | settings import |
 | Real routing API, multiple alternatives | `backend/apps/routing/providers/osrm.py` (OSRM, `alternatives=3`) | `routing/tests/test_providers.py` (mocked) |
 | Real geocoding provider | `backend/apps/routing/providers/nominatim.py` (Nominatim) | `routing/tests/test_providers.py` (mocked) |
-| Real weather forecast API | `backend/apps/weather/providers/open_meteo.py` (Open-Meteo) | `weather/tests/test_open_meteo.py` (mocked) |
+| Real weather forecast API | `backend/apps/weather/providers/open_meteo.py` (Open-Meteo); automatic backup `backend/apps/weather/providers/met_norway.py` (MET Norway) when the primary fails | `weather/tests/test_open_meteo.py`, `weather/tests/test_met_norway.py` (both mocked) |
 | Providers behind replaceable modules | `providers/` packages per app; services depend on provider functions only | structure |
 | No hardcoded keys; `.env.example` | All providers keyless; base URLs from env; `backend/.env.example`, `frontend/.env.example` | grep |
 
